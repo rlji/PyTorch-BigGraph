@@ -171,7 +171,10 @@ class TensorList(object):
         return res
 
     def unsqueeze(self, dim):
-        return self.__class__(self.offsets, self.data.unsqueeze(dim))
+        return self.apply(lambda x: x.unsqueeze(dim))
+
+    def view(self, *args):
+        return self.apply(lambda x: x.view(*args))
 
     def __add__(self, other):
         return self.combine(other, lambda x, y: x + y)
