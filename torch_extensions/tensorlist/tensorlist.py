@@ -162,6 +162,11 @@ class TensorList(object):
     def clone(self):
         return self.__class__(self.offsets, self.data.clone())
 
+    def __repr__(self):
+        if self.offsets.nelement() < 100 or self.data.nelement() < 1000:
+            return "TensorList( [%s] )" % " , ".join(str(self[i].tolist()) for i in range(len(self)))
+        return "TensorList{offsets=%s, data=%s}" % (self.offsets, self.data)
+
     def apply(self, F):
         return self.__class__(self.offsets, F(self.data))
 
