@@ -147,6 +147,8 @@ class TensorList(object):
             raise NotImplementedError()
 
     def size(self, dim=None):
+        # FIXME: this is a terrible API
+
         # to have similar appearance with other tensor types
         assert dim == 0 or dim is None, 'TensorList can only have 1 dimension'
         if dim is None:
@@ -173,6 +175,9 @@ class TensorList(object):
         assert res.data.shape[0] == self.data.shape[0]
         return res
 
+    def lengths(self):
+        return self.offsets[1:] - self.offsets[:-1]
+
     def unsqueeze(self, dim):
         return self.apply(lambda x: x.unsqueeze(dim))
 
@@ -191,11 +196,11 @@ class TensorList(object):
     def __truediv__(self, other):
         return self.combine(other, lambda x, y: x / y)
 
-    def sum(self, dim=None):
+    def sum(self, dim=None, keepdim=False):
         if dim is None:
             return self.data.sum()
         # We're only going to agree to sum across "inner dimensions"
         if dim < 0:
             dim = self.data.ndimension() + dim
         assert dim > 0, "Can't sum along the 'list' dimension"
-        return self.__class__(self.offsets, self.data.sum(dim))
+        return self.__class__(self.offsets, self.data.sum(dim, keepdim=keepdim))
