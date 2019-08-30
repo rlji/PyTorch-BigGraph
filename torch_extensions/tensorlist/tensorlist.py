@@ -163,20 +163,24 @@ class TensorList(object):
     def apply(self, F):
         return self.__class__(self.offsets, F(self.data))
 
+    def combine(self, other, F):
+        assert torch.equal(self.offsets, other.offsets)
+        assert self.data.shape[0] == other.data.shape[0]
+        res = self.__class__(self.offsets, F(self.data, other.data))
+        assert res.data.shape[0] == self.data.shape[0]
+        return res
+
     def unsqueeze(self, dim):
         return self.__class__(self.offsets, self.data.unsqueeze(dim))
 
     def __add__(self, other):
-        assert torch.equal(self.offsets, other.offsets)
-        return self.__class__(self.offsets, self.data + other.data)
+        return self.combine(other, lambda x, y: x + y)
 
     def __sub__(self, other):
-        assert torch.equal(self.offsets, other.offsets)
-        return self.__class__(self.offsets, self.data - other.data)
+        return self.combine(other, lambda x, y: x - y)
 
     def __mul__(self, other):
-        assert torch.equal(self.offsets, other.offsets)
-        return self.__class__(self.offsets, self.data * other.data)
+        return self.combine(other, lambda x, y: x * y)
 
     def sum(self, dim=None):
         if dim is None:
