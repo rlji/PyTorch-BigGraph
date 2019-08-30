@@ -164,9 +164,12 @@ class TensorList(object):
         return self.__class__(self.offsets, F(self.data))
 
     def combine(self, other, F):
-        assert torch.equal(self.offsets, other.offsets)
-        assert self.data.shape[0] == other.data.shape[0]
-        res = self.__class__(self.offsets, F(self.data, other.data))
+        if isinstance(other, TensorList):
+            assert torch.equal(self.offsets, other.offsets)
+            assert self.data.shape[0] == other.data.shape[0]
+            res = self.__class__(self.offsets, F(self.data, other.data))
+        else:
+            res = self.__class__(self.offsets, F(self.data, other))
         assert res.data.shape[0] == self.data.shape[0]
         return res
 
@@ -185,11 +188,14 @@ class TensorList(object):
     def __mul__(self, other):
         return self.combine(other, lambda x, y: x * y)
 
+    def __truediv__(self, other):
+        return self.combine(other, lambda x, y: x / y)
+
     def sum(self, dim=None):
         if dim is None:
             return self.data.sum()
         # We're only going to agree to sum across "inner dimensions"
         if dim < 0:
-            dim = self.data.ndimension() - dim
+            dim = self.data.ndimension() + dim
         assert dim > 0, "Can't sum along the 'list' dimension"
         return self.__class__(self.offsets, self.data.sum(dim))
