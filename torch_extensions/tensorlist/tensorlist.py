@@ -156,3 +156,33 @@ class TensorList(object):
 
     def nelement(self):
         return self.data.nelement()
+
+    def clone(self):
+        return self.__class__(self.offsets, self.data.clone())
+
+    def apply(self, F):
+        return self.__class__(self.offsets, F(self.data))
+
+    def unsqueeze(self, dim):
+        return self.__class__(self.offsets, self.data.unsqueeze(dim))
+
+    def __add__(self, other):
+        assert torch.equal(self.offsets, other.offsets)
+        return self.__class__(self.offsets, self.data + other.data)
+
+    def __sub__(self, other):
+        assert torch.equal(self.offsets, other.offsets)
+        return self.__class__(self.offsets, self.data - other.data)
+
+    def __mul__(self, other):
+        assert torch.equal(self.offsets, other.offsets)
+        return self.__class__(self.offsets, self.data * other.data)
+
+    def sum(self, dim=None):
+        if dim is None:
+            return self.data.sum()
+        # We're only going to agree to sum across "inner dimensions"
+        if dim < 0:
+            dim = self.data.ndimension() - dim
+        assert dim > 0, "Can't sum along the 'list' dimension"
+        return self.__class__(self.offsets, self.data.sum(dim))
