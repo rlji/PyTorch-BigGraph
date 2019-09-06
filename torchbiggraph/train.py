@@ -8,7 +8,6 @@
 
 import argparse
 import logging
-import os.path
 import time
 from abc import ABC, abstractmethod
 from functools import partial
@@ -48,7 +47,8 @@ from torchbiggraph.distributed import (
     start_server,
 )
 from torchbiggraph.edgelist import EdgeList
-from torchbiggraph.edgelist_reader import EdgelistReader
+from torchbiggraph.edgelist_reader import EDGELIST_READERS
+from torchbiggraph.entity_count_reader import ENTITY_COUNT_READERS
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
 from torchbiggraph.model import (
@@ -106,10 +106,7 @@ class Trainer(AbstractBatchProcessor):
         self.global_optimizer = global_optimizer
         self.entity_optimizers: Dict[Tuple[EntityName, Partition], Optimizer] = {}
 
-        try:
-            loss_fn_class = LOSS_FUNCTIONS[loss_fn]
-        except KeyError:
-            raise NotImplementedError("Unknown loss function: %s" % loss_fn)
+        loss_fn_class = LOSS_FUNCTIONS.get_class(loss_fn)
         # TODO This is awful! Can we do better?
         if loss_fn == "ranking":
             self.loss_fn = loss_fn_class(margin)
@@ -305,14 +302,12 @@ def train_and_report_stats(
         pprint.PrettyPrinter().pprint(config.to_dict())
 
     logger.info("Loading entity counts...")
+    entity_count_reader = ENTITY_COUNT_READERS.make_instance(config.entity_path)
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
         for part in range(econf.num_partitions):
-            with open(os.path.join(
-                config.entity_path, "entity_count_%s_%d.txt" % (entity, part)
-            ), "rt") as tf:
-                entity_counts[entity].append(int(tf.read().strip()))
+            entity_counts[entity].append(entity_count_reader.read_entity_count(entity, part))
 
     # Figure out how many lhs and rhs partitions we need
     nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
@@ -382,7 +377,7 @@ def train_and_report_stats(
 
         if config.num_partition_servers == -1:
             start_server(
-                ParameterServer(num_clients=len(ranks.trainers)),
+                ParameterServer(num_clients=len(ranks.trainers), log_stats=True),
                 process_name=f"PartS-{rank}",
                 init_method=config.distributed_init_method,
                 world_size=ranks.world_size,
@@ -392,7 +387,7 @@ def train_and_report_stats(
             )
 
         if len(ranks.partition_servers) > 0:
-            partition_client = PartitionClient(ranks.partition_servers)
+            partition_client = PartitionClient(ranks.partition_servers, log_stats=True)
         else:
             partition_client = None
 
@@ -624,7 +619,7 @@ def train_and_report_stats(
             f"Starting epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
             f"edge path {edge_path_idx + 1} / {iteration_manager.num_edge_paths}, "
             f"edge chunk {edge_chunk_idx + 1} / {iteration_manager.num_edge_chunks}")
-        edgelist_reader = EdgelistReader(iteration_manager.edge_path)
+        edgelist_reader = EDGELIST_READERS.make_instance(iteration_manager.edge_path)
         logger.info(f"Edge path: {iteration_manager.edge_path}")
 
         sync.barrier()
@@ -673,7 +668,7 @@ def train_and_report_stats(
                 checkpoint_manager.record_marker(current_index)
 
             bucket_logger.debug("Loading edges")
-            edges = edgelist_reader.read(
+            edges = edgelist_reader.read_edgelist(
                 cur_b.lhs, cur_b.rhs, edge_chunk_idx, config.num_edge_chunks)
             num_edges = len(edges)
             # this might be off in the case of tensorlist or extra edge fields

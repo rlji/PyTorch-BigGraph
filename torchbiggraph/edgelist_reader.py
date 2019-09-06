@@ -7,8 +7,8 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import logging
-import os
-import os.path
+from abc import ABC, abstractmethod
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -17,10 +17,31 @@ from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
+from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.types import Partition
 
 
 logger = logging.getLogger("torchbiggraph")
+
+
+class AbstractEdgelistReader(ABC):
+
+    @abstractmethod
+    def __init__(self, url: str) -> None:
+        pass
+
+    @abstractmethod
+    def read_edgelist(
+        self,
+        lhs_p: Partition,
+        rhs_p: Partition,
+        chunk_idx: int = 0,
+        num_chunks: int = 1,
+    ) -> EdgeList:
+        pass
+
+
+EDGELIST_READERS = URLPluginRegistry[AbstractEdgelistReader]()
 
 
 # Names and values of metadata attributes for the HDF5 files.
@@ -28,7 +49,9 @@ FORMAT_VERSION_ATTR = "format_version"
 FORMAT_VERSION = 1
 
 
-class EdgelistReader:
+@EDGELIST_READERS.register_as("")  # No scheme
+@EDGELIST_READERS.register_as("file")
+class FileEdgelistReader(AbstractEdgelistReader):
     """Reads partitioned edgelists from disk, in the format
     created by edge_downloader.py.
 
@@ -39,22 +62,25 @@ class EdgelistReader:
     """
 
     def __init__(self, path: str) -> None:
-        if not os.path.isdir(path):
-            raise RuntimeError("Invalid edge dir: %s" % path)
-        self.path: str = os.path.abspath(path)
+        if path.startswith("file://"):
+            path = path[len("file://"):]
+        self.path = Path(path).resolve(strict=False)
+        if not self.path.is_dir():
+            raise RuntimeError(f"Invalid edge dir: {self.path}")
 
-    def read(
+    def read_edgelist(
         self,
         lhs_p: Partition,
         rhs_p: Partition,
         chunk_idx: int = 0,
         num_chunks: int = 1,
     ) -> EdgeList:
-        file_path = os.path.join(self.path, f"edges_{lhs_p}_{rhs_p}.h5")
-        assert os.path.exists(file_path), "%s does not exist" % file_path
+        file_path = self.path / f"edges_{lhs_p}_{rhs_p}.h5"
+        if not file_path.is_file():
+            raise RuntimeError(f"{file_path} does not exist")
         with h5py.File(file_path, 'r') as hf:
             if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
-                raise RuntimeError("Version mismatch in edge file %s" % file_path)
+                raise RuntimeError(f"Version mismatch in edge file {file_path}")
             lhs_ds = hf['lhs']
             rhs_ds = hf['rhs']
             rel_ds = hf['rel']
@@ -89,8 +115,8 @@ class EdgelistReader:
         end: int,
     ) -> TensorList:
         try:
-            offsets_ds = hf['%s_offsets' % key]
-            data_ds = hf['%s_data' % key]
+            offsets_ds = hf[f"{key}_offsets"]
+            data_ds = hf[f"{key}_data"]
         except LookupError:
             # Empty tensor_list representation
             return TensorList(

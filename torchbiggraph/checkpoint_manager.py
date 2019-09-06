@@ -15,7 +15,6 @@ import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
-from urllib.parse import urlparse
 
 import numpy as np
 import torch
@@ -133,8 +132,8 @@ class PartitionClient:
     partitions (i.e. pairs (embs, optim_state)) to the parameter servers.
     """
 
-    def __init__(self, server_ranks: List[Rank]) -> None:
-        self._clients = [ParameterClient(rank) for rank in server_ranks]
+    def __init__(self, server_ranks: List[Rank], log_stats: bool = False) -> None:
+        self._clients = [ParameterClient(rank, log_stats) for rank in server_ranks]
 
     def store(
         self,
@@ -218,12 +217,7 @@ class CheckpointManager:
         subprocess_name: Optional[str] = None,
         subprocess_init: Optional[Callable[[], None]] = None,
     ) -> None:
-        scheme = urlparse(url).scheme
-        try:
-            self.storage: AbstractCheckpointStorage = CHECKPOINT_STORAGES[scheme](url)
-        except LookupError:
-            raise RuntimeError(f"Couldn't find any checkpoint storage "
-                               f"for scheme {scheme} used by {url}")
+        self.storage: AbstractCheckpointStorage = CHECKPOINT_STORAGES.make_instance(url)
         self.dirty: Set[Tuple[EntityName, Partition]] = set()
         self.rank: Rank = rank
         self.num_machines: int = num_machines
